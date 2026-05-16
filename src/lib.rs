@@ -132,7 +132,7 @@ impl MtorrentApp {
         }
     }
 
-    fn start_download(&mut self, index: usize, uri: String, output_dir: PathBuf) {
+    fn start_download(&mut self, index: usize, uri: String, output_dir: PathBuf, ctx: egui::Context) {
         if index >= self.active_downloads.len() {
             return;
         }
@@ -158,6 +158,7 @@ impl MtorrentApp {
         let (listener, canceller) = listener_with_canceller(
             move |json_value| {
                 if let Ok(snapshot) = serde_json::from_value::<serde_json::Value>(json_value.clone()) {
+                    ctx.request_repaint();
                     let mut prog = progress.lock();
                     
                     // Parse snapshot
@@ -198,6 +199,7 @@ impl MtorrentApp {
 
         // Spawn download task on the main runtime's thread
         let net_if = self.net_if.clone();
+        let progress = Arc::clone(&task.progress);
         self.main_runtime_handle.spawn(async move {
             tokio::task::spawn_local(async move {
                 let result = app::main::single_torrent(
@@ -220,8 +222,14 @@ impl MtorrentApp {
                 .await;
 
                 match result {
-                    Ok(()) => log::info!("Download completed: {}", metainfo_uri),
-                    Err(e) => log::error!("Download failed: {} - {}", metainfo_uri, e),
+                    Ok(()) => {
+                        log::info!("Download completed: {}", metainfo_uri);
+                        progress.lock().status = "Completed".to_string();
+                    }
+                    Err(e) => {
+                        log::error!("Download failed: {} - {}", metainfo_uri, e);
+                        progress.lock().status = "Failed".to_string();
+                    }
                 }
             });
         });
@@ -382,7 +390,7 @@ impl eframe::App for MtorrentApp {
                     self.remove_task(idx);
                 }
                 for (idx, uri, output_dir) in tasks_to_start {
-                    self.start_download(idx, uri, output_dir);
+                    self.start_download(idx, uri, output_dir, ctx.clone());
                 }
                 for idx in tasks_to_stop {
                     self.stop_download(idx);
