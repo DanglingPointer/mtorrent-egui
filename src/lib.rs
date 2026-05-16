@@ -62,6 +62,7 @@ struct MtorrentApp {
     storage_runtime_handle: tokio::runtime::Handle,
     dht_cmd_sender: dht::CommandSink,
     cli_arg: Option<String>,
+    net_if: Option<String>,
 }
 
 impl MtorrentApp {
@@ -72,6 +73,7 @@ impl MtorrentApp {
         storage_runtime_handle: tokio::runtime::Handle,
         dht_cmd_sender: dht::CommandSink,
         cli_arg: Option<String>,
+        net_if: Option<String>,
     ) -> Self {
         let mut app = Self {
             peer_id: PeerId::generate_new(),
@@ -83,6 +85,7 @@ impl MtorrentApp {
             storage_runtime_handle,
             dht_cmd_sender,
             cli_arg,
+            net_if,
         };
 
         // Handle CLI arg if provided
@@ -193,10 +196,10 @@ impl MtorrentApp {
 
         task.canceller = Some(canceller);
 
-        // Spawn download task using the main runtime's block_on in a separate thread
-        let main_handle = self.main_runtime_handle.clone();
-        std::thread::spawn(move || {
-            main_handle.block_on(async move {
+        // Spawn download task on the main runtime's thread
+        let net_if = self.net_if.clone();
+        self.main_runtime_handle.spawn(async move {
+            tokio::task::spawn_local(async move {
                 let result = app::main::single_torrent(
                     metainfo_uri.clone(),
                     listener,
@@ -206,6 +209,7 @@ impl MtorrentApp {
                         config_dir: local_data_dir,
                         use_upnp: UPNP_ENABLED,
                         pwp_port: None,
+                        bind_interface: net_if,
                     },
                     app::main::Context {
                         dht_handle: Some(dht_cmd_sender),
@@ -458,12 +462,14 @@ pub fn run() -> io::Result<()> {
         ..Default::default()
     })?;
 
-    let pwp_worker = worker::with_runtime(worker::rt::Config {
+    let pwp_worker = worker::with_local_runtime(worker::rt::Config {
         name: "pwp".to_owned(),
         io_enabled: true,
         time_enabled: true,
         ..Default::default()
     })?;
+
+    let net_if = env::var("MTORRENT_NET_IF").ok();
 
     let (_dht_worker, dht_cmds) = app::dht::launch_dht_node_runtime(app::dht::Config {
         local_port: 6881,
@@ -471,6 +477,8 @@ pub fn run() -> io::Result<()> {
         config_dir: local_data_dir.clone(),
         use_upnp: UPNP_ENABLED,
         bootstrap_nodes_override: None,
+        bind_interface: net_if.clone(),
+        query_timeout: None,
     })?;
 
     // Create app
@@ -481,6 +489,7 @@ pub fn run() -> io::Result<()> {
         storage_worker.runtime_handle().clone(),
         dht_cmds,
         cli_arg,
+        net_if,
     );
 
     // Run egui app

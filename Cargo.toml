@@ -11,7 +11,7 @@ name = "mtorrent_egui"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-mtorrent = { git = "https://github.com/DanglingPointer/mtorrent/", branch = "master" }
+mtorrent = "0.5.3"
 
 # GUI framework
 rfd = "0.17.2"
