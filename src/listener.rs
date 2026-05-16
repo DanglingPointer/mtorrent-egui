@@ -7,7 +7,7 @@ struct DumpSnapshot {
 }
 
 pub struct Listener {
-    callback: Box<dyn Fn(serde_json::Value) + Send>,
+    callback: Box<dyn Fn(&StateSnapshot<'_>) + Send>,
     token: Arc<()>,
     dump_cfg: Option<DumpSnapshot>,
 }
@@ -18,7 +18,7 @@ pub struct Canceller {
 
 pub fn listener_with_canceller<F>(callback: F, dump_level: log::Level) -> (Listener, Canceller)
 where
-    F: Fn(serde_json::Value) + Send + 'static,
+    F: Fn(&StateSnapshot<'_>) + Send + 'static,
 {
     let canceller = Canceller {
         token: Arc::new(()),
@@ -48,9 +48,7 @@ impl StateListener for Listener {
                     log::log!(dump.level, "{snapshot}");
                 }
             }
-            let json_value = serde_json::to_value(&snapshot)
-                .unwrap_or_else(|e| serde_json::Value::String(e.to_string()));
-            (self.callback)(json_value);
+            (self.callback)(&snapshot);
             ControlFlow::Continue(())
         }
     }

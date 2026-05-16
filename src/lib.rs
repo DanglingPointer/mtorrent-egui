@@ -156,41 +156,29 @@ impl MtorrentApp {
 
         // Store canceller first
         let (listener, canceller) = listener_with_canceller(
-            move |json_value| {
-                if let Ok(snapshot) = serde_json::from_value::<serde_json::Value>(json_value.clone()) {
-                    ctx.request_repaint();
-                    let mut prog = progress.lock();
-                    
-                    // Parse snapshot
-                    if let Some(bytes) = snapshot.get("bytes") {
-                        prog.total_bytes = bytes.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
-                        prog.downloaded_bytes = bytes.get("downloaded").and_then(|v| v.as_u64()).unwrap_or(0);
-                    }
-                    
-                    if let Some(peers) = snapshot.get("peers").and_then(|v| v.as_object()) {
-                        prog.peers.clear();
-                        for (addr, peer_data) in peers {
-                            if let Some(peer_obj) = peer_data.as_object() {
-                                let peer_info = PeerInfo {
-                                    addr: addr.clone(),
-                                    client: peer_obj.get("client").and_then(|v| v.as_str()).unwrap_or("n/a").to_string(),
-                                    origin: peer_obj.get("origin").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                                    downloaded: peer_obj.get("download")
-                                        .and_then(|v| v.get("bytesReceived"))
-                                        .and_then(|v| v.as_u64())
-                                        .unwrap_or(0),
-                                    uploaded: peer_obj.get("upload")
-                                        .and_then(|v| v.get("bytesSent"))
-                                        .and_then(|v| v.as_u64())
-                                        .unwrap_or(0),
-                                };
-                                prog.peers.push(peer_info);
-                            }
-                        }
-                    }
-                    
-                    prog.status = "Downloading".to_string();
+            move |snapshot| {
+                ctx.request_repaint();
+                let mut prog = progress.lock();
+
+                prog.total_bytes = snapshot.bytes.total as u64;
+                prog.downloaded_bytes = snapshot.bytes.downloaded as u64;
+
+                prog.peers.clear();
+                for (addr, state) in &snapshot.peers {
+                    let peer_info = PeerInfo {
+                        addr: addr.to_string(),
+                        client: state.extensions.as_ref()
+                            .and_then(|ext| ext.client_type.as_deref())
+                            .unwrap_or("n/a")
+                            .to_string(),
+                        origin: format!("{:?}", state.origin),
+                        downloaded: state.download.bytes_received as u64,
+                        uploaded: state.upload.bytes_sent as u64,
+                    };
+                    prog.peers.push(peer_info);
                 }
+
+                prog.status = "Downloading".to_string();
             },
             log::Level::Debug,
         );
