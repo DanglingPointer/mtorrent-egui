@@ -2,7 +2,7 @@
 name = "mtorrent-egui"
 version = "0.1.8"
 description = "egui version for mtorrent"
-edition = "2021"
+edition = "2024"
 authors = ["Mikhail Vasilyev <mikail.vasilyev@gmail.com>"]
 license = "Apache-2.0"
 
@@ -11,7 +11,7 @@ name = "mtorrent_egui"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-mtorrent = "0.5.3"
+mtorrent = "0.5.4"
 
 # GUI framework
 rfd = "0.17.2"
