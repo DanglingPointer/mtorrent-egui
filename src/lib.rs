@@ -536,3 +536,166 @@ pub fn run() -> io::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_kittest::kittest::Queryable;
+    use egui_kittest::Harness;
+
+    #[test]
+    fn format_bytes() {
+        assert_eq!(MtorrentApp::format_bytes(0), "0 B");
+        assert_eq!(MtorrentApp::format_bytes(512), "512 B");
+        assert_eq!(MtorrentApp::format_bytes(1024), "1.0 KB");
+        assert_eq!(MtorrentApp::format_bytes(1024 * 1024), "1.0 MB");
+        assert_eq!(MtorrentApp::format_bytes(1024 * 1024 * 1024), "1.0 GB");
+        assert_eq!(MtorrentApp::format_bytes(1024u64 * 1024 * 1024 * 1024), "1.0 TB");
+
+        assert_eq!(MtorrentApp::format_bytes_kib(0), "0 KiB");
+        assert_eq!(MtorrentApp::format_bytes_kib(1024 * 1024), "1 024 KiB");
+        assert_eq!(MtorrentApp::format_bytes_kib(1024 * 1024 * 1024), "1 048 576 KiB");
+    }
+
+    // --- MtorrentApp integration tests via Harness::new_eframe ---
+
+    fn make_test_harness(
+        cli_arg: Option<String>,
+    ) -> (tokio::runtime::Runtime, Harness<'static, MtorrentApp>) {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let handle = rt.handle().clone();
+        let (dht_tx, _) = tokio::sync::mpsc::channel::<dht::Command>(1);
+
+        let harness = Harness::new_eframe(move |_cc| {
+            MtorrentApp::new(
+                std::env::temp_dir().join("mtorrent_egui_test"),
+                handle.clone(),
+                handle.clone(),
+                handle.clone(),
+                dht_tx,
+                cli_arg,
+                None,
+            )
+        });
+
+        (rt, harness)
+    }
+
+    #[test]
+    fn app_initial_render() {
+        let (_rt, harness) = make_test_harness(None);
+
+        harness.get_by_label("mtorrent");
+        harness.get_by_label("crates.io");
+        harness.get_by_label("➕ Add New Download Task");
+        assert!(harness.query_by_label("Task 1").is_none());
+    }
+
+    #[test]
+    fn app_add_download_task() {
+        let (_rt, mut harness) = make_test_harness(None);
+
+        harness.get_by_label("➕ Add New Download Task").click();
+        harness.run();
+
+        harness.get_by_label("Task 1");
+        harness.get_by_label("🗑 Remove");
+        harness.get_by_label("Magnet link or file path:");
+        harness.get_by_label("▶ Start Download");
+        harness.get_by_label_contains("Status: Idle");
+    }
+
+    #[test]
+    fn app_remove_download_task() {
+        let (_rt, mut harness) = make_test_harness(None);
+
+        harness.get_by_label("➕ Add New Download Task").click();
+        harness.run();
+        harness.get_by_label("Task 1");
+
+        harness.get_by_label("🗑 Remove").click();
+        harness.run();
+        assert!(harness.query_by_label("Task 1").is_none());
+    }
+
+    #[test]
+    fn app_add_multiple_tasks() {
+        let (_rt, mut harness) = make_test_harness(None);
+
+        harness.get_by_label("➕ Add New Download Task").click();
+        harness.run();
+        harness.get_by_label("➕ Add New Download Task").click();
+        harness.run();
+
+        harness.get_by_label("Task 1");
+        harness.get_by_label("Task 2");
+    }
+
+    #[test]
+    fn app_cli_arg_creates_prefilled_task() {
+        let (_rt, harness) = make_test_harness(Some("magnet:?xt=urn:btih:abc123".to_string()));
+
+        harness.get_by_label("Task 1");
+        assert!(harness.query_all_by_value("magnet:?xt=urn:btih:abc123").count() > 0);
+    }
+
+    #[test]
+    fn app_task_with_peers_renders_table() {
+        let (_rt, mut harness) = make_test_harness(None);
+
+        // Add a task
+        harness.get_by_label("➕ Add New Download Task").click();
+        harness.run();
+
+        // Populate the task's progress with peers
+        {
+            let app = harness.state_mut();
+            let task = &mut app.active_downloads[0];
+            let mut progress = task.progress.lock();
+            progress.total_bytes = 10 * 1024 * 1024;
+            progress.downloaded_bytes = 3 * 1024 * 1024;
+            progress.status = "Downloading".to_string();
+            progress.peers.insert(
+                "10.0.0.1:51413".to_string(),
+                PeerInfo {
+                    client: "Transmission".to_string(),
+                    origin: "DHT".to_string(),
+                    proto: "TCP (S)".to_string(),
+                    downloaded: 1024 * 512,
+                    uploaded: 1024 * 64,
+                },
+            );
+            progress.peers.insert(
+                "192.168.1.50:6881".to_string(),
+                PeerInfo {
+                    client: "qBittorrent".to_string(),
+                    origin: "Tracker".to_string(),
+                    proto: "uTP".to_string(),
+                    downloaded: 1024 * 1024 * 2,
+                    uploaded: 1024 * 128,
+                },
+            );
+        }
+
+        // Re-render with updated state
+        harness.run();
+
+        // Verify progress info
+        harness.get_by_label_contains("Status: Downloading");
+        harness.get_by_label_contains("3.0 MB");
+
+        // Verify peers table header
+        harness.get_by_label("Connected Peers:");
+
+        // Verify peer rows
+        harness.get_by_label("10.0.0.1:51413");
+        harness.get_by_label("Transmission");
+        harness.get_by_label("192.168.1.50:6881");
+        harness.get_by_label("qBittorrent");
+        harness.get_by_label("Tracker");
+        harness.get_by_label("uTP");
+        harness.get_by_label("TCP (S)");
+    }
+}
