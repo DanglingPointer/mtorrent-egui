@@ -1,6 +1,6 @@
 [package]
 name = "mtorrent-egui"
-version = "0.1.9"
+version = "0.1.10"
 description = "egui version for mtorrent"
 edition = "2024"
 authors = ["Mikhail Vasilyev <mikail.vasilyev@gmail.com>"]
