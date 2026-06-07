@@ -6,21 +6,16 @@ edition = "2024"
 authors = ["Mikhail Vasilyev <mikail.vasilyev@gmail.com>"]
 license = "Apache-2.0"
 
-[lib]
-name = "mtorrent_egui"
-crate-type = ["staticlib", "cdylib", "rlib"]
-
 [dependencies]
 mtorrent = "0.5.4"
 
 # GUI framework
 rfd = "0.17.2"
 log = "0.4.29"
-egui = "0.33.3"
 dirs-next = "2.0.0"
 env_logger = "0.11.8"
 file-rotate = "0.8.0"
 parking_lot = "0.12.5"
 image = "0.25.5"
-tokio = { version = "1.49.0", features = ["rt"] }
+tokio = { version = "1.52", features = ["rt"] }
 eframe = { version = "0.33.3", features = ["default"] }

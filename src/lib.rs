@@ -4,11 +4,13 @@ mod logging;
 use crate::listener::{Canceller, listener_with_canceller};
 use crate::logging::{Config, setup_log_rotation};
 use eframe::egui;
+use mtorrent::utils::re_exports::mtorrent_core::pwp::TransportProto;
 use mtorrent::utils::re_exports::mtorrent_dht as dht;
 use mtorrent::utils::re_exports::mtorrent_utils::{peer_id::PeerId, worker};
 use mtorrent::{app, utils};
 use parking_lot::Mutex;
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::{env, io};
 
@@ -16,9 +18,9 @@ const UPNP_ENABLED: bool = true;
 
 #[derive(Clone, Debug)]
 struct PeerInfo {
-    addr: String,
     client: String,
     origin: String,
+    proto: String,
     downloaded: u64,
     uploaded: u64,
 }
@@ -27,7 +29,7 @@ struct PeerInfo {
 struct DownloadProgress {
     total_bytes: u64,
     downloaded_bytes: u64,
-    peers: Vec<PeerInfo>,
+    peers: BTreeMap<String, PeerInfo>,
     status: String,
 }
 
@@ -36,9 +38,22 @@ impl Default for DownloadProgress {
         Self {
             total_bytes: 0,
             downloaded_bytes: 0,
-            peers: Vec::new(),
+            peers: BTreeMap::new(),
             status: "Idle".to_string(),
         }
+    }
+}
+
+fn protocol_string(transport: Option<TransportProto>, encrypted: bool) -> String {
+    let proto_str = match transport {
+        Some(TransportProto::Tcp) => "TCP",
+        Some(TransportProto::Utp) => "uTP",
+        None => "",
+    };
+    if encrypted {
+        format!("{proto_str} (S)")
+    } else {
+        proto_str.to_string()
     }
 }
 
@@ -166,16 +181,16 @@ impl MtorrentApp {
                 prog.peers.clear();
                 for (addr, state) in &snapshot.peers {
                     let peer_info = PeerInfo {
-                        addr: addr.to_string(),
                         client: state.extensions.as_ref()
                             .and_then(|ext| ext.client_type.as_deref())
                             .unwrap_or("n/a")
                             .to_string(),
                         origin: format!("{:?}", state.origin),
+                        proto: protocol_string(state.transport, state.encryption),
                         downloaded: state.download.bytes_received as u64,
                         uploaded: state.upload.bytes_sent as u64,
                     };
-                    prog.peers.push(peer_info);
+                    prog.peers.insert(addr.to_string(), peer_info);
                 }
 
                 prog.status = "Downloading".to_string();
@@ -209,14 +224,16 @@ impl MtorrentApp {
                 )
                 .await;
 
+                let mut progress = progress.lock();
+                progress.peers.clear();
                 match result {
                     Ok(()) => {
                         log::info!("Download completed: {}", metainfo_uri);
-                        progress.lock().status = "Completed".to_string();
+                        progress.status = "Completed".to_string();
                     }
                     Err(e) => {
                         log::error!("Download failed: {} - {}", metainfo_uri, e);
-                        progress.lock().status = "Failed".to_string();
+                        progress.status = "Failed".to_string();
                     }
                 }
             });
@@ -291,21 +308,22 @@ impl eframe::App for MtorrentApp {
                             ui.label("Magnet link or file path:");
                             ui.text_edit_singleline(&mut task.new_uri_input);
                             
-                            if ui.button("Select...").clicked() && !is_downloading {
-                                if let Some(path) = rfd::FileDialog::new()
+                            if ui.button("Select...").clicked() &&
+                                !is_downloading &&
+                                let Some(path) = rfd::FileDialog::new()
                                     .add_filter("Torrent Files", &["torrent"])
                                     .pick_file()
-                                {
-                                    task.new_uri_input = path.to_string_lossy().to_string();
-                                }
+                            {
+                                task.new_uri_input = path.to_string_lossy().to_string();
                             }
                         });
 
                         if !is_downloading {
-                            if ui.button("▶ Start Download").clicked() && !task.new_uri_input.is_empty() {
-                                if let Some(output_dir) = rfd::FileDialog::new().pick_folder() {
-                                    tasks_to_start.push((idx, task.new_uri_input.clone(), output_dir));
-                                }
+                            if ui.button("▶ Start Download").clicked() &&
+                                !task.new_uri_input.is_empty() &&
+                                let Some(output_dir) = rfd::FileDialog::new().pick_folder()
+                            {
+                                tasks_to_start.push((idx, task.new_uri_input.clone(), output_dir));
                             }
                         } else {
                             if ui.button("⏹ Stop Download").clicked() {
@@ -344,7 +362,7 @@ impl eframe::App for MtorrentApp {
                             
                             egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
                                 egui::Grid::new(format!("peers_table_{}", idx))
-                                    .num_columns(5)
+                                    .num_columns(6)
                                     .spacing([10.0, 4.0])
                                     .striped(true)
                                     .show(ui, |ui| {
@@ -352,15 +370,17 @@ impl eframe::App for MtorrentApp {
                                         ui.label("Address");
                                         ui.label("Client");
                                         ui.label("Origin");
+                                        ui.label("Protocol");
                                         ui.label("Downloaded");
                                         ui.label("Uploaded");
                                         ui.end_row();
 
                                         // Rows
-                                        for peer in &progress.peers {
-                                            ui.label(&peer.addr);
+                                        for (addr, peer) in &progress.peers {
+                                            ui.label(addr);
                                             ui.label(&peer.client);
                                             ui.label(&peer.origin);
+                                            ui.label(&peer.proto);
                                             ui.label(Self::format_bytes(peer.downloaded));
                                             ui.label(Self::format_bytes(peer.uploaded));
                                             ui.end_row();
@@ -398,7 +418,7 @@ impl eframe::App for MtorrentApp {
     }
 }
 
-fn setup_logging(local_data_dir: &PathBuf) -> io::Result<()> {
+fn setup_logging(local_data_dir: &Path) -> io::Result<()> {
     let (log_sink, mut log_writer) = setup_log_rotation(Config {
         file_path: local_data_dir.join("mtorrent.log"),
         max_files: 3,
@@ -512,7 +532,7 @@ pub fn run() -> io::Result<()> {
         options,
         Box::new(|_cc| Ok(Box::new(app))),
     )
-    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    .map_err(|e| io::Error::other(e.to_string()))?;
 
     Ok(())
 }
