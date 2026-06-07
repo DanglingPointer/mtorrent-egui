@@ -1,4 +1,4 @@
-[![Build](https://github.com/DanglingPointer/mtorrent-egui/actions/workflows/build.yml/badge.svg)](https://github.com/DanglingPointer/mtorrent-egui/actions/workflows/build.yml)
+[![Build](https://github.com/DanglingPointer/mtorrent-egui/actions/workflows/ci.yml/badge.svg)](https://github.com/DanglingPointer/mtorrent-egui/actions/workflows/ci.yml)
 
 # mtorrent-egui
 
