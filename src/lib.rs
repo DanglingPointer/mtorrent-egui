@@ -283,7 +283,7 @@ impl eframe::App for MtorrentApp {
             ui.separator();
 
             // Scroll area for task list
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt("task_list").show(ui, |ui| {
                 let mut task_to_remove: Option<usize> = None;
                 let mut tasks_to_start: Vec<(usize, String, PathBuf)> = Vec::new();
                 let mut tasks_to_stop: Vec<usize> = Vec::new();
@@ -360,7 +360,7 @@ impl eframe::App for MtorrentApp {
                             ui.add_space(10.0);
                             ui.label("Connected Peers:");
                             
-                            egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                            egui::ScrollArea::vertical().id_salt(idx).max_height(200.0).show(ui, |ui| {
                                 egui::Grid::new(format!("peers_table_{}", idx))
                                     .num_columns(6)
                                     .spacing([10.0, 4.0])
