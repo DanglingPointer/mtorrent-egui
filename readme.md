@@ -1,5 +1,3 @@
-[![Build](https://github.com/DanglingPointer/mtorrent-egui/actions/workflows/ci.yml/badge.svg)](https://github.com/DanglingPointer/mtorrent-egui/actions/workflows/ci.yml)
-
 # mtorrent-egui
 
 Simple graphical user interface for [mtorrent](https://github.com/DanglingPointer/mtorrent). Based on egui, tested on MacOS.
